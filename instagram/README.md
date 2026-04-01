@@ -92,6 +92,12 @@ downloads/<username>/<date>_<post_id>/
   metadata.csv
 ```
 
+If some posts fail to download, the extractor continues and writes:
+
+```text
+downloads/<username>/failed_downloads.csv
+```
+
 ## Full flag reference
 
 | Flag | What it does |
@@ -116,6 +122,7 @@ downloads/<username>/<date>_<post_id>/
 - Instagram changes access rules often, so some public profiles may still require login
 - metadata exports include all fields `yt-dlp` returns for each post
 - nested objects are stored in CSV as JSON strings
+- individual failed downloads are logged and skipped so the run can continue
 
 ## Help
 

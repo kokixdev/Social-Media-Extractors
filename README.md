@@ -31,6 +31,11 @@ downloads/<source_name>/<post_folder>/
 ```
 
 You can also export one combined metadata index with `--metadata-file`.
+If some posts fail to download, the run continues and writes:
+
+```text
+downloads/<source_name>/failed_downloads.csv
+```
 
 ## Common features
 
@@ -38,6 +43,7 @@ You can also export one combined metadata index with `--metadata-file`.
 - keeps all available `yt-dlp` metadata fields in CSV and JSON exports
 - stores nested metadata as JSON strings in CSV cells
 - uses `--continue` and `--no-overwrites` when downloading
+- continues past individual download failures and logs them to `failed_downloads.csv`
 
 ## Git behavior
 

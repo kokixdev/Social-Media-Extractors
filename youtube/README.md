@@ -93,6 +93,12 @@ downloads/<channel>/<date>_<video_id>/
   metadata.csv
 ```
 
+If some videos fail to download, the extractor continues and writes:
+
+```text
+downloads/<channel>/failed_downloads.csv
+```
+
 ## Full flag reference
 
 | Flag | What it does |
@@ -117,6 +123,7 @@ downloads/<channel>/<date>_<video_id>/
 - a bare `@channel` URL is normalized to the channel videos tab automatically
 - YouTube metadata is often richer than other platforms and usually includes more descriptive fields
 - metadata exports include all fields `yt-dlp` returns for each video
+- individual failed downloads are logged and skipped so the rest of the channel can continue
 
 ## Help
 

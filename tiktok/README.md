@@ -108,6 +108,12 @@ Each post folder contains:
 - the downloaded video file
 - a one-row `metadata.csv` for that exact post
 
+If some posts fail to download, the extractor continues and writes:
+
+```text
+downloads/<username>/failed_downloads.csv
+```
+
 ## Full flag reference
 
 | Flag | What it does |
@@ -131,6 +137,7 @@ Each post folder contains:
 - works best with public TikTok profiles
 - suppresses repeated `yt-dlp` impersonation warning noise
 - uses `--continue` and `--no-overwrites` when downloading
+- continues when an individual post cannot be downloaded and logs the failure instead of aborting the whole batch
 - writes only matched posts to the links file and metadata export
 
 ## Help

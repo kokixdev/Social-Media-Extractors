@@ -44,6 +44,14 @@ class VideoEntry:
         return self.like_count / self.view_count if self.view_count > 0 else 0.0
 
 
+@dataclass
+class DownloadFailure:
+    video_id: str
+    url: str
+    post_folder: str
+    error: str
+
+
 def build_parser(platform_name: str, example_url: str) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
@@ -365,16 +373,47 @@ def download_single_video(entry: VideoEntry, post_dir: Path) -> None:
         raise RuntimeError(error_text)
 
 
+def write_failures_csv(path: Path, failures: list[DownloadFailure]) -> None:
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["video_id", "url", "post_folder", "error"])
+        writer.writeheader()
+        for failure in failures:
+            writer.writerow(
+                {
+                    "video_id": failure.video_id,
+                    "url": failure.url,
+                    "post_folder": failure.post_folder,
+                    "error": failure.error,
+                }
+            )
+
+
 def download_videos(entries: list[VideoEntry], download_dir: Path, source_name: str) -> Path:
     source_dir = download_dir / source_name
     source_dir.mkdir(parents=True, exist_ok=True)
+    failures: list[DownloadFailure] = []
 
     for index, entry in enumerate(entries, start=1):
         post_dir = source_dir / entry_folder_name(entry)
         post_dir.mkdir(parents=True, exist_ok=True)
         write_metadata_csv(post_dir / "metadata.csv", [entry])
-        download_single_video(entry, post_dir)
-        print(f"Downloaded {index}/{len(entries)} into {post_dir}")
+        try:
+            download_single_video(entry, post_dir)
+            print(f"Downloaded {index}/{len(entries)} into {post_dir}")
+        except RuntimeError as error:
+            failures.append(
+                DownloadFailure(
+                    video_id=entry.video_id,
+                    url=entry.url,
+                    post_folder=post_dir.name,
+                    error=str(error),
+                )
+            )
+            print(f"Skipped {index}/{len(entries)} for {entry.video_id}: {error}", file=sys.stderr)
+
+    if failures:
+        write_failures_csv(source_dir / "failed_downloads.csv", failures)
+        print(f"Skipped {len(failures)} posts. See {source_dir / 'failed_downloads.csv'}")
 
     return source_dir
 
