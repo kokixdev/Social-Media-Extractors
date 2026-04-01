@@ -7,6 +7,9 @@ import csv
 import json
 import subprocess
 import sys
+import urllib.error
+import urllib.parse
+import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -173,6 +176,20 @@ def sanitize_stderr(stderr: str) -> str:
 def run_command(args: list[str]) -> subprocess.CompletedProcess[str]:
     command = ["yt-dlp", "--no-warnings", *args]
     return subprocess.run(command, text=True, capture_output=True)
+
+
+def fetch_post_details(source_url: str) -> dict[str, Any]:
+    result = run_command(["--skip-download", "--dump-single-json", source_url])
+    if result.returncode != 0:
+        error_text = sanitize_stderr(result.stderr) or "yt-dlp failed to fetch post details"
+        raise RuntimeError(error_text)
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        raise RuntimeError(f"yt-dlp returned invalid post JSON: {error}") from error
+    if not isinstance(payload, dict):
+        raise RuntimeError("yt-dlp returned unexpected post metadata")
+    return payload
 
 
 def fetch_profile_entries(source_url: str) -> list[VideoEntry]:
@@ -358,6 +375,88 @@ def write_links(output_path: Path, entries: list[VideoEntry]) -> None:
     )
 
 
+def collect_image_urls(metadata: dict[str, Any]) -> list[str]:
+    urls: list[str] = []
+    seen = set()
+
+    def add_url(value: Any) -> None:
+        if not isinstance(value, str) or not value:
+            return
+        if value in seen:
+            return
+        seen.add(value)
+        urls.append(value)
+
+    thumbnail = metadata.get("thumbnail")
+    add_url(thumbnail)
+
+    thumbnails = metadata.get("thumbnails")
+    if isinstance(thumbnails, list):
+        for item in thumbnails:
+            if isinstance(item, dict):
+                add_url(item.get("url"))
+
+    return urls
+
+
+def file_suffix_from_url(url: str, default_suffix: str) -> str:
+    parsed = urllib.parse.urlparse(url)
+    suffix = Path(parsed.path).suffix
+    if suffix:
+        return suffix
+    return default_suffix
+
+
+def download_url_to_file(url: str, destination: Path) -> None:
+    request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    try:
+        with urllib.request.urlopen(request) as response, destination.open("wb") as handle:
+            handle.write(response.read())
+    except urllib.error.URLError as error:
+        raise RuntimeError(f"failed to download {url}: {error}") from error
+
+
+def has_video_format(metadata: dict[str, Any]) -> bool:
+    formats = metadata.get("formats")
+    if not isinstance(formats, list):
+        return False
+    for item in formats:
+        if not isinstance(item, dict):
+            continue
+        vcodec = item.get("vcodec")
+        if isinstance(vcodec, str) and vcodec not in ("none", ""):
+            return True
+    return False
+
+
+def download_audio_only(entry_url: str, post_dir: Path) -> bool:
+    result = run_command(
+        [
+            "--no-overwrites",
+            "--continue",
+            "-o",
+            str(post_dir / "audio.%(ext)s"),
+            entry_url,
+        ]
+    )
+    return result.returncode == 0
+
+
+def download_slideshow_assets(entry: VideoEntry, post_dir: Path, metadata: dict[str, Any]) -> bool:
+    image_urls = collect_image_urls(metadata)
+    audio_downloaded = False
+
+    if image_urls:
+        for index, image_url in enumerate(image_urls, start=1):
+            suffix = file_suffix_from_url(image_url, ".jpg")
+            download_url_to_file(image_url, post_dir / f"image_{index}{suffix}")
+
+    if not has_video_format(metadata):
+        audio_downloaded = download_audio_only(entry.url, post_dir)
+
+    return bool(image_urls or audio_downloaded)
+
+
 def download_single_video(entry: VideoEntry, post_dir: Path) -> None:
     result = run_command(
         [
@@ -369,8 +468,38 @@ def download_single_video(entry: VideoEntry, post_dir: Path) -> None:
         ]
     )
     if result.returncode != 0:
+        try:
+            metadata = fetch_post_details(entry.url)
+            if download_slideshow_assets(entry, post_dir, metadata):
+                write_metadata_csv(post_dir / "metadata.csv", [entry_from_metadata(entry.url, metadata)])
+                return
+        except RuntimeError:
+            pass
         error_text = sanitize_stderr(result.stderr) or f"yt-dlp failed to download video {entry.video_id}"
         raise RuntimeError(error_text)
+
+
+def entry_from_metadata(entry_url: str, metadata: dict[str, Any]) -> VideoEntry:
+    video_id = metadata.get("id") or metadata.get("display_id") or entry_url
+    return VideoEntry(
+        url=str(metadata.get("webpage_url") or metadata.get("original_url") or entry_url),
+        video_id=str(video_id),
+        timestamp=metadata.get("timestamp"),
+        caption=str(metadata.get("title") or metadata.get("description") or ""),
+        description=str(metadata.get("description") or ""),
+        duration=int(metadata.get("duration") or 0),
+        uploader=str(metadata.get("uploader") or ""),
+        uploader_id=str(metadata.get("uploader_id") or ""),
+        channel=str(metadata.get("channel") or ""),
+        channel_id=str(metadata.get("channel_id") or ""),
+        track=str(metadata.get("track") or ""),
+        view_count=int(metadata.get("view_count") or 0),
+        like_count=int(metadata.get("like_count") or 0),
+        comment_count=int(metadata.get("comment_count") or 0),
+        repost_count=int(metadata.get("repost_count") or 0),
+        save_count=int(metadata.get("save_count") or 0),
+        raw_metadata=dict(metadata),
+    )
 
 
 def write_failures_csv(path: Path, failures: list[DownloadFailure]) -> None:
