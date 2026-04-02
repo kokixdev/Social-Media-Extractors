@@ -1,6 +1,6 @@
 # TikTok Extractor
 
-Extract all public TikTok posts from a profile URL, filter them, export full metadata, and optionally download matching videos into one folder per post.
+Extract all public TikTok posts from a profile URL, filter them, export readable post details, and optionally download matching media into one folder per post.
 
 ## Basic usage
 
@@ -29,7 +29,7 @@ Choose custom output paths:
 ```bash
 python3 tiktok_extractor.py "https://www.tiktok.com/@username" \
   --output outputs/tiktok_links.txt \
-  --metadata-file outputs/tiktok_posts.csv \
+  --metadata-file outputs/tiktok_posts.txt \
   --download-videos \
   --download-dir downloads
 ```
@@ -71,27 +71,26 @@ python3 tiktok_extractor.py "https://www.tiktok.com/@username" \
   --min-views 100000 \
   --min-likes 3000 \
   --download-videos \
-  --metadata-file outputs/filtered_tiktok_posts.csv
+  --metadata-file outputs/filtered_tiktok_posts.txt
 ```
 
-## Metadata export
+## Details export
 
-Export full metadata to CSV:
+Export readable post details to text:
 
 ```bash
 python3 tiktok_extractor.py "https://www.tiktok.com/@username" \
-  --metadata-file outputs/tiktok_posts.csv
+  --metadata-file outputs/tiktok_posts.txt
 ```
 
-Export full metadata to JSON:
+The details export includes only:
 
-```bash
-python3 tiktok_extractor.py "https://www.tiktok.com/@username" \
-  --metadata-file outputs/tiktok_posts.json \
-  --metadata-format json
-```
-
-The metadata export includes all fields returned by `yt-dlp` for each post. Nested values such as thumbnails or headers are serialized into CSV cells as JSON strings.
+- video link
+- view count
+- like count
+- comment count
+- hashtags
+- caption or description
 
 ## Folder structure
 
@@ -100,18 +99,18 @@ When `--download-videos` is used:
 ```text
 downloads/<username>/<date>_<video_id>/
   video.<ext>
-  metadata.csv
+  details.txt
 ```
 
 Each post folder contains:
 
-- the downloaded video file
-- a one-row `metadata.csv` for that exact post
+- the downloaded media files
+- a readable `details.txt` summary for that exact post
 
 If some posts fail to download, the extractor continues and writes:
 
 ```text
-downloads/<username>/failed_downloads.csv
+downloads/<username>/failed_downloads.txt
 ```
 
 ## Full flag reference
@@ -122,8 +121,7 @@ downloads/<username>/failed_downloads.csv
 | `-o`, `--output` | Save matching post links to a custom text file |
 | `--download-videos` | Download matching posts as video files |
 | `--download-dir` | Base folder for downloaded post folders. Default: `downloads` |
-| `--metadata-file` | Save combined metadata for all matched posts |
-| `--metadata-format` | Metadata format for `--metadata-file`: `csv` or `json` |
+| `--metadata-file` | Save combined readable post details to a text file |
 | `--min-views` | Keep only posts with at least this many views |
 | `--min-likes` | Keep only posts with at least this many likes |
 | `--min-comments` | Keep only posts with at least this many comments |
@@ -138,7 +136,7 @@ downloads/<username>/failed_downloads.csv
 - suppresses repeated `yt-dlp` impersonation warning noise
 - uses `--continue` and `--no-overwrites` when downloading
 - continues when an individual post cannot be downloaded and logs the failure instead of aborting the whole batch
-- writes only matched posts to the links file and metadata export
+- writes only matched posts to the links file and details export
 - photo posts and slideshows use a browser-backed fallback when TikTok slide images are not fully exposed by `yt-dlp`
 
 ## TikTok slideshow support

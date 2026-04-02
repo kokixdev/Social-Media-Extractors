@@ -17,7 +17,7 @@ All scripts follow the same flow:
 1. Extract all posts/videos from a public profile, channel, or account URL
 2. Filter posts by metrics such as views, likes, comments, reposts, saves, and like rate
 3. Export matching links to a text file
-4. Export matching metadata to CSV or JSON
+4. Export matching post details to a readable text file
 5. Optionally download matching media into a structured folder tree
 
 ## Requirements
@@ -138,13 +138,12 @@ If some posts fail to download, the run continues and writes:
 downloads/<source_name>/failed_downloads.csv
 ```
 
-You can also export one combined metadata index with `--metadata-file`.
+You can also export one combined readable details file with `--metadata-file`.
 
 ## Common features
 
 - suppresses repeated `yt-dlp` impersonation warning noise
-- keeps all available `yt-dlp` metadata fields in CSV and JSON exports
-- stores nested metadata as JSON strings in CSV cells
+- writes simplified readable post details instead of raw metadata dumps
 - uses `--continue` and `--no-overwrites` when downloading
 - continues past individual download failures and logs them to `failed_downloads.csv`
 
@@ -153,7 +152,7 @@ You can also export one combined metadata index with `--metadata-file`.
 The repo includes a `.gitignore` that excludes:
 
 - downloaded media
-- generated text, CSV, and JSON outputs
+- generated text outputs
 - local caches
 - the optional `.venv`
 

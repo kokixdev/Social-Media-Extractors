@@ -1,6 +1,6 @@
 # X Extractor
 
-Extract public X posts with downloadable media from a profile URL, filter them, export full metadata, and optionally download matching videos into one folder per post.
+Extract public X posts with downloadable media from a profile URL, filter them, export readable post details, and optionally download matching videos into one folder per post.
 
 ## Basic usage
 
@@ -29,7 +29,7 @@ Choose custom output paths:
 ```bash
 python3 x_extractor.py "https://x.com/username" \
   --output outputs/x_links.txt \
-  --metadata-file outputs/x_posts.csv \
+  --metadata-file outputs/x_posts.txt \
   --download-videos \
   --download-dir downloads
 ```
@@ -65,21 +65,13 @@ python3 x_extractor.py "https://x.com/username" \
   --download-videos
 ```
 
-## Metadata export
+## Details export
 
-Export full metadata to CSV:
-
-```bash
-python3 x_extractor.py "https://x.com/username" \
-  --metadata-file outputs/x_posts.csv
-```
-
-Export full metadata to JSON:
+Export readable post details to text:
 
 ```bash
 python3 x_extractor.py "https://x.com/username" \
-  --metadata-file outputs/x_posts.json \
-  --metadata-format json
+  --metadata-file outputs/x_posts.txt
 ```
 
 ## Folder structure
@@ -89,13 +81,13 @@ When `--download-videos` is used:
 ```text
 downloads/<username>/<date>_<post_id>/
   video.<ext>
-  metadata.csv
+  details.txt
 ```
 
 If some posts fail to download, the extractor continues and writes:
 
 ```text
-downloads/<username>/failed_downloads.csv
+downloads/<username>/failed_downloads.txt
 ```
 
 ## Full flag reference
@@ -106,8 +98,7 @@ downloads/<username>/failed_downloads.csv
 | `-o`, `--output` | Save matching post links to a custom text file |
 | `--download-videos` | Download matching posts as video files |
 | `--download-dir` | Base folder for downloaded post folders. Default: `downloads` |
-| `--metadata-file` | Save combined metadata for all matched posts |
-| `--metadata-format` | Metadata format for `--metadata-file`: `csv` or `json` |
+| `--metadata-file` | Save combined readable post details to a text file |
 | `--min-views` | Keep only posts with at least this many views |
 | `--min-likes` | Keep only posts with at least this many likes |
 | `--min-comments` | Keep only posts with at least this many comments |
@@ -120,8 +111,7 @@ downloads/<username>/failed_downloads.csv
 
 - works only for public posts that `yt-dlp` can access
 - X often changes access and rate limits, so availability can vary
-- metadata exports include all fields `yt-dlp` returns for each post
-- nested objects are stored in CSV as JSON strings
+- details exports include only the link, view count, like count, comment count, hashtags, and caption
 - individual failed downloads are logged and skipped so the run can continue
 
 ## Help

@@ -1,6 +1,6 @@
 # YouTube Extractor
 
-Extract all public YouTube videos from a channel, handle, `/videos` page, or playlist URL, filter them, export full metadata, and optionally download matching videos into one folder per video.
+Extract all public YouTube videos from a channel, handle, `/videos` page, or playlist URL, filter them, export readable post details, and optionally download matching videos into one folder per video.
 
 ## Basic usage
 
@@ -31,7 +31,7 @@ Choose custom output paths:
 ```bash
 python3 youtube_extractor.py "https://www.youtube.com/@channelname" \
   --output outputs/youtube_links.txt \
-  --metadata-file outputs/youtube_posts.csv \
+  --metadata-file outputs/youtube_posts.txt \
   --download-videos \
   --download-dir downloads
 ```
@@ -66,21 +66,13 @@ python3 youtube_extractor.py "https://www.youtube.com/@channelname" \
   --download-videos
 ```
 
-## Metadata export
+## Details export
 
-Export full metadata to CSV:
-
-```bash
-python3 youtube_extractor.py "https://www.youtube.com/@channelname" \
-  --metadata-file outputs/youtube_posts.csv
-```
-
-Export full metadata to JSON:
+Export readable post details to text:
 
 ```bash
 python3 youtube_extractor.py "https://www.youtube.com/@channelname" \
-  --metadata-file outputs/youtube_posts.json \
-  --metadata-format json
+  --metadata-file outputs/youtube_posts.txt
 ```
 
 ## Folder structure
@@ -90,13 +82,13 @@ When `--download-videos` is used:
 ```text
 downloads/<channel>/<date>_<video_id>/
   video.<ext>
-  metadata.csv
+  details.txt
 ```
 
 If some videos fail to download, the extractor continues and writes:
 
 ```text
-downloads/<channel>/failed_downloads.csv
+downloads/<channel>/failed_downloads.txt
 ```
 
 ## Full flag reference
@@ -107,8 +99,7 @@ downloads/<channel>/failed_downloads.csv
 | `-o`, `--output` | Save matching video links to a custom text file |
 | `--download-videos` | Download matching videos |
 | `--download-dir` | Base folder for downloaded video folders. Default: `downloads` |
-| `--metadata-file` | Save combined metadata for all matched videos |
-| `--metadata-format` | Metadata format for `--metadata-file`: `csv` or `json` |
+| `--metadata-file` | Save combined readable post details to a text file |
 | `--min-views` | Keep only videos with at least this many views |
 | `--min-likes` | Keep only videos with at least this many likes |
 | `--min-comments` | Keep only videos with at least this many comments |
@@ -122,7 +113,7 @@ downloads/<channel>/failed_downloads.csv
 - works with public channels and many playlist URLs
 - a bare `@channel` URL is normalized to the channel videos tab automatically
 - YouTube metadata is often richer than other platforms and usually includes more descriptive fields
-- metadata exports include all fields `yt-dlp` returns for each video
+- details exports include only the link, view count, like count, comment count, hashtags, and caption
 - individual failed downloads are logged and skipped so the rest of the channel can continue
 
 ## Help

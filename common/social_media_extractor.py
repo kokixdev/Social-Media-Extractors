@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import csv
 import importlib
 import json
 import re
@@ -62,7 +61,7 @@ def build_parser(platform_name: str, example_url: str) -> argparse.ArgumentParse
     parser = argparse.ArgumentParser(
         description=(
             f"Extract {platform_name} post links from a profile/channel URL, "
-            "filter posts by engagement, export metadata, and optionally download videos."
+            "filter posts by engagement, export readable post details, and optionally download videos."
         )
     )
     parser.add_argument(
@@ -89,13 +88,7 @@ def build_parser(platform_name: str, example_url: str) -> argparse.ArgumentParse
     parser.add_argument(
         "--metadata-file",
         type=Path,
-        help="Export matching post metadata to this file.",
-    )
-    parser.add_argument(
-        "--metadata-format",
-        choices=("csv", "json"),
-        default="csv",
-        help="Metadata format for --metadata-file. Default: csv",
+        help="Export matching post details to this text file.",
     )
     parser.add_argument(
         "--min-views",
@@ -379,59 +372,59 @@ def entry_folder_name(entry: VideoEntry) -> str:
     return f"{entry_date_prefix(entry)}_{safe_name(entry.video_id)}"
 
 
-def csv_value(value: Any) -> str | int | float:
-    if value is None:
-        return ""
-    if isinstance(value, bool):
-        return int(value)
-    if isinstance(value, (str, int, float)):
-        return value
-    return json.dumps(value, ensure_ascii=False, sort_keys=True)
+def extract_hashtags(entry: VideoEntry) -> list[str]:
+    tags: list[str] = []
+    seen = set()
 
+    for text in (entry.caption, entry.description):
+        for match in re.findall(r"#([A-Za-z0-9_]+)", text or ""):
+            tag = f"#{match}"
+            if tag not in seen:
+                seen.add(tag)
+                tags.append(tag)
 
-def metadata_row(entry: VideoEntry) -> dict[str, str | int | float]:
-    row: dict[str, str | int | float] = {}
-    for key, value in entry.raw_metadata.items():
-        row[key] = csv_value(value)
-    row["caption"] = entry.caption
-    row["description"] = entry.description
-    row["created_at_utc"] = timestamp_to_iso(entry.timestamp)
-    row["duration_seconds"] = entry.duration
-    row["like_rate"] = round(entry.like_rate, 6)
-    row["post_folder"] = entry_folder_name(entry)
-    return row
-
-
-def write_metadata_csv(path: Path, entries: list[VideoEntry]) -> None:
-    rows = [metadata_row(entry) for entry in entries]
-    fieldnames: list[str] = []
-    seen_fields = set()
-    for row in rows:
-        for key in row.keys():
-            if key in seen_fields:
+    challenges = entry.raw_metadata.get("challenges")
+    if isinstance(challenges, list):
+        for challenge in challenges:
+            if not isinstance(challenge, dict):
                 continue
-            seen_fields.add(key)
-            fieldnames.append(key)
-    if not fieldnames:
-        fieldnames = ["video_id", "url", "caption", "description", "created_at_utc", "like_rate", "post_folder"]
-    with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames)
-        writer.writeheader()
-        for row in rows:
-            writer.writerow(row)
+            title = challenge.get("title") or challenge.get("chaName")
+            if not isinstance(title, str) or not title.strip():
+                continue
+            tag = title if title.startswith("#") else f"#{title}"
+            if tag not in seen:
+                seen.add(tag)
+                tags.append(tag)
+
+    return tags
 
 
-def write_metadata_json(path: Path, entries: list[VideoEntry]) -> None:
-    rows = [metadata_row(entry) for entry in entries]
-    path.write_text(json.dumps(rows, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+def display_caption(entry: VideoEntry) -> str:
+    text = (entry.description or entry.caption or "").strip()
+    return text or "(empty)"
 
 
-def write_metadata_export(path: Path, fmt: str, entries: list[VideoEntry]) -> None:
+def format_post_details(entry: VideoEntry) -> str:
+    hashtags = extract_hashtags(entry)
+    hashtag_text = ", ".join(hashtags) if hashtags else "(none)"
+    lines = [
+        f"Link: {entry.url}",
+        f"Views: {entry.view_count}",
+        f"Likes: {entry.like_count}",
+        f"Comments: {entry.comment_count}",
+        f"Hashtags: {hashtag_text}",
+        "Caption:",
+        display_caption(entry),
+    ]
+    return "\n".join(lines)
+
+
+def write_metadata_text(path: Path, entries: list[VideoEntry]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    if fmt == "json":
-        write_metadata_json(path, entries)
-        return
-    write_metadata_csv(path, entries)
+    blocks = [format_post_details(entry) for entry in entries]
+    separator = "\n" + ("-" * 60) + "\n\n"
+    content = separator.join(blocks)
+    path.write_text(content + ("\n" if content else ""), encoding="utf-8")
 
 
 def write_links(output_path: Path, entries: list[VideoEntry]) -> None:
@@ -611,7 +604,7 @@ def download_single_video(entry: VideoEntry, post_dir: Path) -> None:
         if metadata is not None and not has_video_format(metadata):
             rename_video_files_to_audio(post_dir)
             if download_slideshow_assets(entry, post_dir, metadata):
-                write_metadata_csv(post_dir / "metadata.csv", [entry_from_metadata(entry.url, metadata)])
+                write_metadata_text(post_dir / "details.txt", [entry_from_metadata(entry.url, metadata)])
                 return
             raise RuntimeError(f"post {entry.video_id} has no downloadable video format or slideshow assets")
         return
@@ -619,7 +612,7 @@ def download_single_video(entry: VideoEntry, post_dir: Path) -> None:
     if result.returncode != 0:
         try:
             if metadata is not None and download_slideshow_assets(entry, post_dir, metadata):
-                write_metadata_csv(post_dir / "metadata.csv", [entry_from_metadata(entry.url, metadata)])
+                write_metadata_text(post_dir / "details.txt", [entry_from_metadata(entry.url, metadata)])
                 return
         except RuntimeError:
             pass
@@ -650,19 +643,22 @@ def entry_from_metadata(entry_url: str, metadata: dict[str, Any]) -> VideoEntry:
     )
 
 
-def write_failures_csv(path: Path, failures: list[DownloadFailure]) -> None:
-    with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=["video_id", "url", "post_folder", "error"])
-        writer.writeheader()
-        for failure in failures:
-            writer.writerow(
-                {
-                    "video_id": failure.video_id,
-                    "url": failure.url,
-                    "post_folder": failure.post_folder,
-                    "error": failure.error,
-                }
+def write_failures_text(path: Path, failures: list[DownloadFailure]) -> None:
+    blocks = []
+    for failure in failures:
+        blocks.append(
+            "\n".join(
+                [
+                    f"Video ID: {failure.video_id}",
+                    f"Link: {failure.url}",
+                    f"Folder: {failure.post_folder}",
+                    f"Error: {failure.error}",
+                ]
             )
+        )
+    separator = "\n" + ("-" * 60) + "\n\n"
+    content = separator.join(blocks)
+    path.write_text(content + ("\n" if content else ""), encoding="utf-8")
 
 
 def download_videos(entries: list[VideoEntry], download_dir: Path, source_name: str) -> Path:
@@ -673,7 +669,7 @@ def download_videos(entries: list[VideoEntry], download_dir: Path, source_name: 
     for index, entry in enumerate(entries, start=1):
         post_dir = source_dir / entry_folder_name(entry)
         post_dir.mkdir(parents=True, exist_ok=True)
-        write_metadata_csv(post_dir / "metadata.csv", [entry])
+        write_metadata_text(post_dir / "details.txt", [entry])
         try:
             download_single_video(entry, post_dir)
             print(f"Downloaded {index}/{len(entries)} into {post_dir}")
@@ -689,8 +685,8 @@ def download_videos(entries: list[VideoEntry], download_dir: Path, source_name: 
             print(f"Skipped {index}/{len(entries)} for {entry.video_id}: {error}", file=sys.stderr)
 
     if failures:
-        write_failures_csv(source_dir / "failed_downloads.csv", failures)
-        print(f"Skipped {len(failures)} posts. See {source_dir / 'failed_downloads.csv'}")
+        write_failures_text(source_dir / "failed_downloads.txt", failures)
+        print(f"Skipped {len(failures)} posts. See {source_dir / 'failed_downloads.txt'}")
 
     return source_dir
 
@@ -700,7 +696,7 @@ def print_summary(total_entries: int, matching_entries: list[VideoEntry], output
     print(f"Matched {len(matching_entries)} posts")
     print(f"Saved matching links to {output_path}")
     if metadata_path is not None:
-        print(f"Saved matching metadata to {metadata_path}")
+        print(f"Saved matching post details to {metadata_path}")
 
 
 def run_extractor(platform_name: str, example_url: str) -> int:
@@ -717,7 +713,7 @@ def run_extractor(platform_name: str, example_url: str) -> int:
         matching_entries = filter_entries(entries, args)
         write_links(output_path, matching_entries)
         if metadata_path is not None:
-            write_metadata_export(metadata_path, args.metadata_format, matching_entries)
+            write_metadata_text(metadata_path, matching_entries)
     except RuntimeError as error:
         print(f"Error: {error}", file=sys.stderr)
         return 1
