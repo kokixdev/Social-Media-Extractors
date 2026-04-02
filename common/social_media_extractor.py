@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import csv
+import importlib
 import json
+import re
 import subprocess
 import sys
 import urllib.error
@@ -151,6 +154,8 @@ def derive_source_name(source_url: str) -> str:
 
 
 def normalize_source_url(platform_name: str, source_url: str) -> str:
+    if platform_name.lower() == "tiktok":
+        return normalize_tiktok_url(source_url)
     if platform_name.lower() != "youtube":
         return source_url
     lower_url = source_url.lower()
@@ -162,6 +167,10 @@ def normalize_source_url(platform_name: str, source_url: str) -> str:
     if any(marker in lower_url for marker in tab_markers + terminal_markers):
         return source_url
     return source_url.rstrip("/") + "/videos"
+
+
+def normalize_tiktok_url(source_url: str) -> str:
+    return re.sub(r"/photo/(\d+)", r"/video/\1", source_url)
 
 
 def sanitize_stderr(stderr: str) -> str:
@@ -178,7 +187,64 @@ def run_command(args: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(command, text=True, capture_output=True)
 
 
+def maybe_add_repo_venv_to_syspath() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    venv_lib = repo_root / ".venv" / "lib"
+    if not venv_lib.exists():
+        return
+    candidates = sorted(venv_lib.glob("python*/site-packages"))
+    for candidate in candidates:
+        candidate_str = str(candidate)
+        if candidate_str not in sys.path:
+            sys.path.insert(0, candidate_str)
+
+
+def get_tiktokapi_class():
+    maybe_add_repo_venv_to_syspath()
+    try:
+        module = importlib.import_module("TikTokApi")
+    except ImportError:
+        return None
+    return getattr(module, "TikTokApi", None)
+
+
+async def _fetch_tiktok_photo_details_async(source_url: str) -> dict[str, Any]:
+    TikTokApiClass = get_tiktokapi_class()
+    if TikTokApiClass is None:
+        raise RuntimeError("TikTokApi is not installed")
+    async with TikTokApiClass() as api:
+        await api.create_sessions(num_sessions=1, headless=True)
+        video = api.video(url=normalize_tiktok_url(source_url))
+        return await video.info()
+
+
+def fetch_tiktok_photo_details(source_url: str) -> dict[str, Any]:
+    try:
+        return asyncio.run(_fetch_tiktok_photo_details_async(source_url))
+    except RuntimeError as error:
+        if "asyncio.run() cannot be called" in str(error):
+            raise RuntimeError("TikTokApi fallback cannot run inside an active event loop") from error
+        raise
+
+
+def enrich_tiktok_photo_metadata(source_url: str, metadata: dict[str, Any]) -> dict[str, Any]:
+    if "tiktok.com" not in source_url:
+        return metadata
+    if metadata.get("imagePost"):
+        return metadata
+    if has_video_format(metadata):
+        return metadata
+    try:
+        enriched = fetch_tiktok_photo_details(source_url)
+    except RuntimeError:
+        return metadata
+    if isinstance(enriched, dict) and enriched.get("imagePost"):
+        return enriched
+    return metadata
+
+
 def fetch_post_details(source_url: str) -> dict[str, Any]:
+    source_url = normalize_tiktok_url(source_url)
     result = run_command(["--skip-download", "--dump-single-json", source_url])
     if result.returncode != 0:
         error_text = sanitize_stderr(result.stderr) or "yt-dlp failed to fetch post details"
@@ -189,10 +255,11 @@ def fetch_post_details(source_url: str) -> dict[str, Any]:
         raise RuntimeError(f"yt-dlp returned invalid post JSON: {error}") from error
     if not isinstance(payload, dict):
         raise RuntimeError("yt-dlp returned unexpected post metadata")
-    return payload
+    return enrich_tiktok_photo_metadata(source_url, payload)
 
 
 def fetch_profile_entries(source_url: str) -> list[VideoEntry]:
+    source_url = normalize_tiktok_url(source_url)
     result = run_command(["--flat-playlist", "--dump-single-json", source_url])
     if result.returncode != 0:
         error_text = sanitize_stderr(result.stderr) or "yt-dlp failed to fetch profile data"
@@ -211,7 +278,7 @@ def fetch_profile_entries(source_url: str) -> list[VideoEntry]:
             continue
         entries.append(
             VideoEntry(
-                url=str(url),
+                url=normalize_tiktok_url(str(url)),
                 video_id=str(video_id),
                 timestamp=raw_entry.get("timestamp"),
                 caption=str(raw_entry.get("title") or raw_entry.get("description") or ""),
@@ -375,7 +442,7 @@ def write_links(output_path: Path, entries: list[VideoEntry]) -> None:
     )
 
 
-def collect_image_urls(metadata: dict[str, Any]) -> list[str]:
+def collect_image_urls(metadata: dict[str, Any]) -> tuple[list[str], bool]:
     urls: list[str] = []
     seen = set()
 
@@ -387,6 +454,48 @@ def collect_image_urls(metadata: dict[str, Any]) -> list[str]:
         seen.add(value)
         urls.append(value)
 
+    image_list_keys = {
+        "images",
+        "image_list",
+        "imageList",
+        "photos",
+        "photo_list",
+        "photoList",
+    }
+    image_url_keys = {
+        "url",
+        "image_url",
+        "imageUrl",
+        "display_image",
+        "displayImage",
+        "origin_url",
+        "originUrl",
+    }
+    image_url_list_keys = {"urllist", "url_list"}
+
+    def walk(obj: Any, key_name: str | None = None) -> None:
+        if isinstance(obj, dict):
+            for key, value in obj.items():
+                lower_key = key.lower()
+                if lower_key in image_list_keys and isinstance(value, list):
+                    for item in value:
+                        walk(item, lower_key)
+                    continue
+                if lower_key in image_url_list_keys and isinstance(value, list):
+                    if value:
+                        add_url(value[0])
+                    continue
+                if lower_key in image_url_keys:
+                    add_url(value)
+                walk(value, lower_key)
+        elif isinstance(obj, list):
+            for item in obj:
+                walk(item, key_name)
+
+    walk(metadata)
+    if urls:
+        return urls, False
+
     thumbnail = metadata.get("thumbnail")
     add_url(thumbnail)
 
@@ -394,9 +503,28 @@ def collect_image_urls(metadata: dict[str, Any]) -> list[str]:
     if isinstance(thumbnails, list):
         for item in thumbnails:
             if isinstance(item, dict):
-                add_url(item.get("url"))
+                thumb_id = str(item.get("id") or "").lower()
+                if thumb_id in {"cover", "origincover", "thumbnail"}:
+                    add_url(item.get("url"))
 
-    return urls
+    return urls, True
+
+
+def downloaded_video_candidates(post_dir: Path) -> list[Path]:
+    return sorted(path for path in post_dir.iterdir() if path.is_file() and path.name.startswith("video."))
+
+
+def rename_video_files_to_audio(post_dir: Path) -> list[Path]:
+    renamed: list[Path] = []
+    for path in downloaded_video_candidates(post_dir):
+        target = post_dir / f"audio{path.suffix}"
+        if target.exists():
+            path.unlink(missing_ok=True)
+            renamed.append(target)
+            continue
+        path.rename(target)
+        renamed.append(target)
+    return renamed
 
 
 def file_suffix_from_url(url: str, default_suffix: str) -> str:
@@ -443,16 +571,23 @@ def download_audio_only(entry_url: str, post_dir: Path) -> bool:
 
 
 def download_slideshow_assets(entry: VideoEntry, post_dir: Path, metadata: dict[str, Any]) -> bool:
-    image_urls = collect_image_urls(metadata)
+    image_urls, cover_only = collect_image_urls(metadata)
     audio_downloaded = False
 
     if image_urls:
         for index, image_url in enumerate(image_urls, start=1):
             suffix = file_suffix_from_url(image_url, ".jpg")
-            download_url_to_file(image_url, post_dir / f"image_{index}{suffix}")
+            if cover_only:
+                target_name = f"cover{suffix}"
+            else:
+                target_name = f"image_{index}{suffix}"
+            download_url_to_file(image_url, post_dir / target_name)
 
     if not has_video_format(metadata):
-        audio_downloaded = download_audio_only(entry.url, post_dir)
+        if not any(path.name.startswith("audio.") for path in post_dir.iterdir() if path.is_file()):
+            audio_downloaded = download_audio_only(entry.url, post_dir)
+        else:
+            audio_downloaded = True
 
     return bool(image_urls or audio_downloaded)
 
@@ -467,10 +602,23 @@ def download_single_video(entry: VideoEntry, post_dir: Path) -> None:
             entry.url,
         ]
     )
+    try:
+        metadata = fetch_post_details(entry.url)
+    except RuntimeError:
+        metadata = None
+
+    if result.returncode == 0:
+        if metadata is not None and not has_video_format(metadata):
+            rename_video_files_to_audio(post_dir)
+            if download_slideshow_assets(entry, post_dir, metadata):
+                write_metadata_csv(post_dir / "metadata.csv", [entry_from_metadata(entry.url, metadata)])
+                return
+            raise RuntimeError(f"post {entry.video_id} has no downloadable video format or slideshow assets")
+        return
+
     if result.returncode != 0:
         try:
-            metadata = fetch_post_details(entry.url)
-            if download_slideshow_assets(entry, post_dir, metadata):
+            if metadata is not None and download_slideshow_assets(entry, post_dir, metadata):
                 write_metadata_csv(post_dir / "metadata.csv", [entry_from_metadata(entry.url, metadata)])
                 return
         except RuntimeError:

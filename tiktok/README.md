@@ -139,6 +139,27 @@ downloads/<username>/failed_downloads.csv
 - uses `--continue` and `--no-overwrites` when downloading
 - continues when an individual post cannot be downloaded and logs the failure instead of aborting the whole batch
 - writes only matched posts to the links file and metadata export
+- photo posts and slideshows use a browser-backed fallback when TikTok slide images are not fully exposed by `yt-dlp`
+
+## TikTok slideshow support
+
+For TikTok photo posts, the extractor first tries the normal `yt-dlp` path.
+
+If TikTok only exposes the cover image through `yt-dlp`, the extractor can fall back to a browser-backed TikTok scraper and fetch the full slide list from the page data.
+
+This repo looks for an optional local virtual environment at:
+
+```text
+Social Media Extractors/.venv
+```
+
+If you want the strongest TikTok slideshow support on another machine, set up that virtual environment and install:
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install TikTokApi playwright
+.venv/bin/python -m playwright install chromium
+```
 
 ## Help
 
