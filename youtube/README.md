@@ -80,7 +80,7 @@ python3 youtube_extractor.py "https://www.youtube.com/@channelname" \
 When `--download-videos` is used:
 
 ```text
-downloads/<channel>/<date>_<video_id>/
+downloads/<channel>/video 1/
   video.<ext>
   details.txt
 ```

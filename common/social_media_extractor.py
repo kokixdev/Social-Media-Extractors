@@ -359,19 +359,6 @@ def safe_name(value: str) -> str:
     return cleaned.strip("_") or "post"
 
 
-def entry_date_prefix(entry: VideoEntry) -> str:
-    if entry.timestamp is not None:
-        return datetime.fromtimestamp(entry.timestamp, tz=timezone.utc).strftime("%Y%m%d")
-    upload_date = entry.raw_metadata.get("upload_date")
-    if isinstance(upload_date, str) and len(upload_date) == 8 and upload_date.isdigit():
-        return upload_date
-    return "unknown_date"
-
-
-def entry_folder_name(entry: VideoEntry) -> str:
-    return f"{entry_date_prefix(entry)}_{safe_name(entry.video_id)}"
-
-
 def extract_hashtags(entry: VideoEntry) -> list[str]:
     tags: list[str] = []
     seen = set()
@@ -667,7 +654,7 @@ def download_videos(entries: list[VideoEntry], download_dir: Path, source_name: 
     failures: list[DownloadFailure] = []
 
     for index, entry in enumerate(entries, start=1):
-        post_dir = source_dir / entry_folder_name(entry)
+        post_dir = source_dir / f"video {index}"
         post_dir.mkdir(parents=True, exist_ok=True)
         write_metadata_text(post_dir / "details.txt", [entry])
         try:

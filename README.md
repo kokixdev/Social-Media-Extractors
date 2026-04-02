@@ -116,26 +116,26 @@ python3 x/x_extractor.py --help
 When `--download-videos` is used, each matched post gets its own folder:
 
 ```text
-downloads/<source_name>/<post_folder>/
+downloads/<source_name>/video 1/
   video.<ext>
-  metadata.csv
+  details.txt
 ```
 
 For slideshow or photo-style posts, the folder may contain:
 
 ```text
-downloads/<source_name>/<post_folder>/
+downloads/<source_name>/video 2/
   image_1.jpg
   image_2.jpg
   image_3.jpg
   audio.m4a
-  metadata.csv
+  details.txt
 ```
 
 If some posts fail to download, the run continues and writes:
 
 ```text
-downloads/<source_name>/failed_downloads.csv
+downloads/<source_name>/failed_downloads.txt
 ```
 
 You can also export one combined readable details file with `--metadata-file`.
@@ -145,7 +145,7 @@ You can also export one combined readable details file with `--metadata-file`.
 - suppresses repeated `yt-dlp` impersonation warning noise
 - writes simplified readable post details instead of raw metadata dumps
 - uses `--continue` and `--no-overwrites` when downloading
-- continues past individual download failures and logs them to `failed_downloads.csv`
+- continues past individual download failures and logs them to `failed_downloads.txt`
 
 ## Git behavior
 

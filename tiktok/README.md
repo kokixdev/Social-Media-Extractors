@@ -97,7 +97,7 @@ The details export includes only:
 When `--download-videos` is used:
 
 ```text
-downloads/<username>/<date>_<video_id>/
+downloads/<username>/video 1/
   video.<ext>
   details.txt
 ```
